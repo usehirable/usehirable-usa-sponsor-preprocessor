@@ -176,6 +176,16 @@ It:
 
 Automatic commits and weekly cron scheduling are intentionally not enabled yet.
 
+The workflow at `.github/workflows/publish-usa-sponsors.yml` can also be run manually when the generated files should be committed back to the repository.
+
+It:
+
+1. Builds the same sponsor outputs.
+2. Force-adds the generated JSON files under `dist/`.
+3. Commits and pushes only when the generated files changed.
+
+This workflow intentionally remains manual-only.
+
 ## Future Google Apps Script Integration
 
 Google Apps Script should consume the compact JSON outputs instead of reading the raw DOL workbook. That keeps heavy XLSX parsing, aggregation, and normalization in Python, while Apps Script can focus on importing or publishing already-prepared sponsor records into the wider visa sponsor directory pipeline.

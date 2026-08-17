@@ -1,0 +1,32 @@
+{
+  "version": "2026-08-17",
+  "country": "United States",
+  "countryCode": "US",
+  "fiscalYear": 2026,
+  "quarter": 3,
+  "chunk": 2,
+  "chunkCount": 2,
+  "chunkSize": 5000,
+  "recordCount": 1,
+  "companies": [
+    {
+      "company_name": "Company 05001 LLC",
+      "company_slug": "company-05001-llc",
+      "country": "United States",
+      "country_code": "US",
+      "country_slug": "united-states",
+      "industry": "",
+      "location": "Austin, TX",
+      "location_slug": "austin-tx",
+      "tags": "Software Developers",
+      "sponsor_type": "LCA Employer",
+      "visa_program": "E-3",
+      "top_job_titles": [
+        "Software Developers"
+      ],
+      "source": "U.S. DOL LCA Disclosure",
+      "source_url": "https://www.dol.gov/media/LCA_Disclosure_Data_FY2026_Q3.xlsx",
+      "filing_count": 1
+    }
+  ]
+}
