@@ -30,6 +30,8 @@ DISCLOSURE_RE = re.compile(
 EXCLUDED_LINK_TEXT = ("appendix", "worksite")
 RELEVANT_VISA_CLASSES = {"H-1B", "H-1B1", "E-3"}
 RELEVANT_STATUS_PREFIXES = ("CERTIFIED",)
+DEFAULT_CHUNK_SIZE = 5000
+CHUNK_FILE_RE = re.compile(r"usa-\d{3}\.json")
 
 HEADER_ALIASES = {
     "employer_name": {
@@ -174,6 +176,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("dist/usa-sponsors.json"),
         help="Output JSON path.",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=DEFAULT_CHUNK_SIZE,
+        help="Number of sponsor records per chunk file.",
     )
     return parser.parse_args()
 
@@ -405,29 +413,202 @@ def build_company_records(
     )
 
 
-def write_output(
-    output_path: Path,
+def get_generated_at() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def get_total_filings(companies: list[dict[str, object]]) -> int:
+    return sum(int(company.get("filing_count") or 0) for company in companies)
+
+
+def build_full_payload(
     companies: list[dict[str, object]],
     source_url: str,
     fiscal_year: int,
     quarter: int,
-) -> None:
-    payload = {
-        "version": date.today().isoformat(),
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
+    version: str,
+    generated_at: str,
+) -> dict[str, object]:
+    return {
+        "version": version,
+        "generatedAt": generated_at,
         "source": SOURCE_NAME,
         "sourceUrl": source_url,
         "fiscalYear": fiscal_year,
         "quarter": quarter,
         "totalCompanies": len(companies),
+        "totalFilings": get_total_filings(companies),
         "companies": companies,
     }
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+
+def build_chunk_payloads(
+    companies: list[dict[str, object]],
+    fiscal_year: int,
+    quarter: int,
+    version: str,
+    chunk_size: int,
+) -> list[tuple[str, dict[str, object]]]:
+    chunk_count = (len(companies) + chunk_size - 1) // chunk_size
+    payloads: list[tuple[str, dict[str, object]]] = []
+
+    for index in range(chunk_count):
+        chunk_companies = companies[index * chunk_size : (index + 1) * chunk_size]
+        filename = f"usa-{index + 1:03d}.json"
+        payloads.append(
+            (
+                filename,
+                {
+                    "version": version,
+                    "country": COUNTRY,
+                    "countryCode": COUNTRY_CODE,
+                    "fiscalYear": fiscal_year,
+                    "quarter": quarter,
+                    "chunk": index + 1,
+                    "chunkCount": chunk_count,
+                    "chunkSize": chunk_size,
+                    "recordCount": len(chunk_companies),
+                    "companies": chunk_companies,
+                },
+            )
+        )
+
+    return payloads
+
+
+def build_manifest_payload(
+    full_payload: dict[str, object],
+    chunk_payloads: list[tuple[str, dict[str, object]]],
+    chunk_size: int,
+) -> dict[str, object]:
+    chunks = [
+        {
+            "index": payload["chunk"],
+            "file": filename,
+            "recordCount": payload["recordCount"],
+        }
+        for filename, payload in chunk_payloads
+    ]
+    return {
+        "version": full_payload["version"],
+        "generatedAt": full_payload["generatedAt"],
+        "country": COUNTRY,
+        "countryCode": COUNTRY_CODE,
+        "source": full_payload["source"],
+        "sourceUrl": full_payload["sourceUrl"],
+        "fiscalYear": full_payload["fiscalYear"],
+        "quarter": full_payload["quarter"],
+        "totalCompanies": full_payload["totalCompanies"],
+        "totalFilings": full_payload["totalFilings"],
+        "chunkSize": chunk_size,
+        "chunkCount": len(chunks),
+        "chunks": chunks,
+    }
+
+
+def validate_output_contract(
+    companies: list[dict[str, object]],
+    full_payload: dict[str, object],
+    manifest_payload: dict[str, object],
+    chunk_payloads: list[tuple[str, dict[str, object]]],
+    chunk_size: int,
+    source_url: str,
+    fiscal_year: int,
+    quarter: int,
+) -> None:
+    if not companies:
+        raise RuntimeError("Cannot write USA sponsor output: companies array is empty.")
+    if full_payload["totalCompanies"] == 0:
+        raise RuntimeError("Cannot write USA sponsor output: totalCompanies is 0.")
+    if not source_url:
+        raise RuntimeError("Cannot write USA sponsor output: sourceUrl is empty.")
+    if not fiscal_year:
+        raise RuntimeError("Cannot write USA sponsor output: fiscalYear is missing.")
+    if not quarter:
+        raise RuntimeError("Cannot write USA sponsor output: quarter is missing.")
+
+    for index, company in enumerate(companies):
+        if not company.get("company_name"):
+            raise RuntimeError(f"Cannot write USA sponsor output: company_name missing at index {index}.")
+
+    filenames = [filename for filename, _payload in chunk_payloads]
+    if len(filenames) != len(set(filenames)):
+        raise RuntimeError("Cannot write USA sponsor output: duplicate chunk filenames.")
+
+    combined_companies: list[dict[str, object]] = []
+    for index, (_filename, payload) in enumerate(chunk_payloads):
+        record_count = int(payload["recordCount"])
+        if record_count == 0:
+            raise RuntimeError("Cannot write USA sponsor output: chunk contains 0 records.")
+        if index < len(chunk_payloads) - 1 and record_count != chunk_size:
+            raise RuntimeError(
+                f"Cannot write USA sponsor output: chunk {index + 1} has {record_count} records, expected {chunk_size}."
+            )
+        combined_companies.extend(payload["companies"])
+
+    if sum(chunk["recordCount"] for chunk in manifest_payload["chunks"]) != full_payload["totalCompanies"]:
+        raise RuntimeError("Cannot write USA sponsor output: chunk record totals do not match totalCompanies.")
+    if manifest_payload["chunkCount"] != len(manifest_payload["chunks"]):
+        raise RuntimeError("Cannot write USA sponsor output: manifest chunkCount does not match chunks length.")
+    if combined_companies != companies:
+        raise RuntimeError("Cannot write USA sponsor output: chunked companies do not match full dataset order.")
+
+
+def write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
+
+
+def remove_stale_chunk_files(output_dir: Path) -> None:
+    for path in output_dir.glob("usa-*.json"):
+        if CHUNK_FILE_RE.fullmatch(path.name):
+            path.unlink()
+
+
+def write_outputs(
+    output_path: Path,
+    companies: list[dict[str, object]],
+    source_url: str,
+    fiscal_year: int,
+    quarter: int,
+    chunk_size: int,
+) -> dict[str, object]:
+    if chunk_size <= 0:
+        raise RuntimeError("Chunk size must be greater than 0.")
+
+    version = date.today().isoformat()
+    generated_at = get_generated_at()
+    output_dir = output_path.parent
+    full_payload = build_full_payload(
+        companies=companies,
+        source_url=source_url,
+        fiscal_year=fiscal_year,
+        quarter=quarter,
+        version=version,
+        generated_at=generated_at,
+    )
+    chunk_payloads = build_chunk_payloads(companies, fiscal_year, quarter, version, chunk_size)
+    manifest_payload = build_manifest_payload(full_payload, chunk_payloads, chunk_size)
+    validate_output_contract(
+        companies=companies,
+        full_payload=full_payload,
+        manifest_payload=manifest_payload,
+        chunk_payloads=chunk_payloads,
+        chunk_size=chunk_size,
+        source_url=source_url,
+        fiscal_year=fiscal_year,
+        quarter=quarter,
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(output_path, full_payload)
+    remove_stale_chunk_files(output_dir)
+    for filename, payload in chunk_payloads:
+        write_json(output_dir / filename, payload)
+    write_json(output_dir / "manifest.json", manifest_payload)
+    return manifest_payload
 
 
 def run() -> None:
@@ -450,15 +631,19 @@ def run() -> None:
                 aggregates, stats = process_workbook(workbook_path)
                 print_processing_stats(stats)
                 companies = build_company_records(aggregates, source_url)
-                write_output(args.output, companies, source_url, fiscal_year, quarter)
-                print(f"Wrote {len(companies):,} companies to {args.output}")
+                manifest = write_outputs(args.output, companies, source_url, fiscal_year, quarter, args.chunk_size)
+                print(
+                    f"Wrote {len(companies):,} companies across {manifest['chunkCount']} chunks to {args.output.parent}"
+                )
                 return
 
     aggregates, stats = process_workbook(workbook_path)
     print_processing_stats(stats)
     companies = build_company_records(aggregates, source_url)
-    write_output(args.output, companies, source_url, fiscal_year, quarter)
-    print(f"Wrote {len(companies):,} companies to {args.output}")
+    manifest = write_outputs(args.output, companies, source_url, fiscal_year, quarter, args.chunk_size)
+    print(
+        f"Wrote {len(companies):,} companies across {manifest['chunkCount']} chunks to {args.output.parent}"
+    )
 
 
 def main() -> int:

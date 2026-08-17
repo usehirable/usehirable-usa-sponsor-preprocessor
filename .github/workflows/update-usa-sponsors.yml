@@ -26,5 +26,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: usa-sponsors-json
-          path: dist/usa-sponsors.json
+          path: |
+            dist/usa-sponsors.json
+            dist/manifest.json
+            dist/usa-*.json
           if-no-files-found: error
