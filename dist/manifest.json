@@ -1,16 +1,16 @@
 {
   "version": "2026-08-17",
-  "generatedAt": "2026-08-17T19:03:56.091861Z",
+  "generatedAt": "2026-08-17T19:58:14.478457Z",
   "country": "United States",
   "countryCode": "US",
   "source": "U.S. DOL LCA Disclosure",
   "sourceUrl": "https://www.dol.gov/media/LCA_Disclosure_Data_FY2026_Q3.xlsx",
   "fiscalYear": 2026,
   "quarter": 3,
-  "totalCompanies": 5001,
-  "totalFilings": 5001,
+  "totalCompanies": 60846,
+  "totalFilings": 427628,
   "chunkSize": 5000,
-  "chunkCount": 2,
+  "chunkCount": 13,
   "chunks": [
     {
       "index": 1,
@@ -20,7 +20,62 @@
     {
       "index": 2,
       "file": "usa-002.json",
-      "recordCount": 1
+      "recordCount": 5000
+    },
+    {
+      "index": 3,
+      "file": "usa-003.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 4,
+      "file": "usa-004.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 5,
+      "file": "usa-005.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 6,
+      "file": "usa-006.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 7,
+      "file": "usa-007.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 8,
+      "file": "usa-008.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 9,
+      "file": "usa-009.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 10,
+      "file": "usa-010.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 11,
+      "file": "usa-011.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 12,
+      "file": "usa-012.json",
+      "recordCount": 5000
+    },
+    {
+      "index": 13,
+      "file": "usa-013.json",
+      "recordCount": 846
     }
   ]
 }
