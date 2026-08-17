@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Iterable
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -95,6 +95,14 @@ class EmployerAggregate:
     filing_count: int = 0
 
 
+@dataclass
+class ProcessingStats:
+    raw_visa_classes: Counter[str] = field(default_factory=Counter)
+    kept_visa_programs: Counter[str] = field(default_factory=Counter)
+    skipped_visa_classes: Counter[str] = field(default_factory=Counter)
+    skipped_statuses: Counter[str] = field(default_factory=Counter)
+
+
 def normalize_header(value: object) -> str:
     text = normalize_whitespace(value)
     return re.sub(r"[^a-z0-9]", "", text.lower())
@@ -117,6 +125,25 @@ def normalize_group_key(*parts: str) -> tuple[str, ...]:
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "unknown"
+
+
+def normalize_url(value: str) -> str:
+    parts = urlsplit(value)
+    normalized_path = re.sub(r"/{2,}", "/", parts.path)
+    return urlunsplit((parts.scheme, parts.netloc, normalized_path, parts.query, parts.fragment))
+
+
+def normalize_visa_program(value: object) -> str:
+    visa_class = normalize_whitespace(value).upper()
+    if not visa_class:
+        return ""
+    if visa_class.startswith("H-1B1"):
+        return "H-1B1"
+    if visa_class.startswith("H-1B"):
+        return "H-1B"
+    if visa_class.startswith("E-3"):
+        return "E-3"
+    return visa_class
 
 
 def parse_args() -> argparse.Namespace:
@@ -171,7 +198,7 @@ def discover_latest_disclosure(source_page: str) -> DisclosureFile:
         filename = match.group(0)
         candidates.append(
             DisclosureFile(
-                url=urljoin(source_page, href),
+                url=normalize_url(urljoin(source_page, href)),
                 filename=filename,
                 fiscal_year=int(match.group("year")),
                 quarter=int(match.group("quarter")),
@@ -248,11 +275,10 @@ def get_cell(row: tuple[object, ...], index: int | None) -> str:
     return normalize_whitespace(row[index])
 
 
-def is_relevant_case(visa_class: str, case_status: str) -> bool:
-    visa_class_upper = visa_class.upper()
+def is_relevant_case(visa_program: str, case_status: str) -> bool:
     case_status_upper = case_status.upper()
 
-    if visa_class_upper and visa_class_upper not in RELEVANT_VISA_CLASSES:
+    if visa_program and visa_program not in RELEVANT_VISA_CLASSES:
         return False
     if case_status_upper and not case_status_upper.startswith(RELEVANT_STATUS_PREFIXES):
         return False
@@ -266,8 +292,11 @@ def get_metadata_from_filename(filename: str) -> tuple[int, int]:
     return int(match.group("year")), int(match.group("quarter"))
 
 
-def process_workbook(workbook_path: Path) -> dict[tuple[str, str, str], EmployerAggregate]:
+def process_workbook(
+    workbook_path: Path,
+) -> tuple[dict[tuple[str, str, str], EmployerAggregate], ProcessingStats]:
     workbook = load_workbook(filename=workbook_path, read_only=True, data_only=True)
+    stats = ProcessingStats()
     try:
         worksheet = workbook[workbook.sheetnames[0]]
         row_iterator = worksheet.iter_rows(values_only=True)
@@ -282,9 +311,16 @@ def process_workbook(workbook_path: Path) -> dict[tuple[str, str, str], Employer
             if not company_name or not city or not state:
                 continue
 
-            visa_class = get_cell(row, columns["visa_class"]).upper()
+            raw_visa_class = get_cell(row, columns["visa_class"])
+            visa_program = normalize_visa_program(raw_visa_class)
             case_status = get_cell(row, columns["case_status"])
-            if not is_relevant_case(visa_class, case_status):
+            if raw_visa_class:
+                stats.raw_visa_classes[normalize_whitespace(raw_visa_class).upper()] += 1
+            if visa_program and visa_program not in RELEVANT_VISA_CLASSES:
+                stats.skipped_visa_classes[visa_program] += 1
+            if case_status and not case_status.upper().startswith(RELEVANT_STATUS_PREFIXES):
+                stats.skipped_statuses[case_status.upper()] += 1
+            if not is_relevant_case(visa_program, case_status):
                 continue
 
             key = normalize_group_key(company_name, city, state)
@@ -293,8 +329,9 @@ def process_workbook(workbook_path: Path) -> dict[tuple[str, str, str], Employer
                 EmployerAggregate(company_name=company_name, city=city, state=state),
             )
             aggregate.filing_count += 1
-            if visa_class:
-                aggregate.visa_programs[visa_class] += 1
+            if visa_program:
+                aggregate.visa_programs[visa_program] += 1
+                stats.kept_visa_programs[visa_program] += 1
 
             soc_title = get_cell(row, columns["soc_title"])
             if soc_title:
@@ -307,7 +344,22 @@ def process_workbook(workbook_path: Path) -> dict[tuple[str, str, str], Employer
 
     if not aggregates:
         raise RuntimeError("No employer-level sponsor records were produced.")
-    return aggregates
+    return aggregates, stats
+
+
+def print_processing_stats(stats: ProcessingStats) -> None:
+    def format_counter(counter: Counter[str]) -> str:
+        if not counter:
+            return "none"
+        return ", ".join(f"{key}={value:,}" for key, value in counter.most_common(10))
+
+    print(f"Raw visa classes: {format_counter(stats.raw_visa_classes)}", file=sys.stderr)
+    print(f"Kept visa programs: {format_counter(stats.kept_visa_programs)}", file=sys.stderr)
+    if stats.skipped_visa_classes:
+        print(
+            f"Skipped visa classes: {format_counter(stats.skipped_visa_classes)}",
+            file=sys.stderr,
+        )
 
 
 def build_company_records(
@@ -383,7 +435,7 @@ def run() -> None:
 
     if args.workbook:
         workbook_path = args.workbook
-        source_url = args.source_url or str(workbook_path)
+        source_url = normalize_url(args.source_url) if args.source_url else str(workbook_path)
         fiscal_year, quarter = get_metadata_from_filename(workbook_path.name)
     else:
         disclosure = discover_latest_disclosure(args.source_page)
@@ -395,13 +447,15 @@ def run() -> None:
         else:
             with TemporaryDirectory() as temp_dir:
                 workbook_path = download_file(disclosure, Path(temp_dir))
-                aggregates = process_workbook(workbook_path)
+                aggregates, stats = process_workbook(workbook_path)
+                print_processing_stats(stats)
                 companies = build_company_records(aggregates, source_url)
                 write_output(args.output, companies, source_url, fiscal_year, quarter)
                 print(f"Wrote {len(companies):,} companies to {args.output}")
                 return
 
-    aggregates = process_workbook(workbook_path)
+    aggregates, stats = process_workbook(workbook_path)
+    print_processing_stats(stats)
     companies = build_company_records(aggregates, source_url)
     write_output(args.output, companies, source_url, fiscal_year, quarter)
     print(f"Wrote {len(companies):,} companies to {args.output}")
