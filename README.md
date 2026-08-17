@@ -164,7 +164,7 @@ The chunked output is generated from the same ordered `companies` list as `usa-s
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/update-usa-sponsors.yml` can be run manually with `workflow_dispatch`.
+The workflow at `.github/workflows/update-usa-sponsors.yml` can be run manually with `workflow_dispatch`. It also runs automatically every Sunday at 04:25 UTC.
 
 It:
 
@@ -174,17 +174,18 @@ It:
 4. Runs `python src/build_usa_sponsors.py`.
 5. Uploads `dist/usa-sponsors.json`, `dist/manifest.json`, and `dist/usa-*.json` as workflow artifacts.
 
-Automatic commits and weekly cron scheduling are intentionally not enabled yet.
+This workflow uploads the generated files as the `usa-sponsors-json` artifact.
 
-The workflow at `.github/workflows/publish-usa-sponsors.yml` can also be run manually when the generated files should be committed back to the repository.
+The workflow at `.github/workflows/publish-usa-sponsors.yml` can also be run manually when the generated files should be committed back to the repository. It also runs automatically after `Update USA sponsors` completes successfully.
 
 It:
 
-1. Builds the same sponsor outputs.
-2. Force-adds the generated JSON files under `dist/`.
-3. Commits and pushes only when the generated files changed.
+1. Builds the same sponsor outputs when run manually.
+2. Downloads the `usa-sponsors-json` artifact from the exact triggering Update run when started by `workflow_run`.
+3. Adds the generated JSON files under `dist/`.
+4. Commits and pushes only when the generated files changed.
 
-This workflow intentionally remains manual-only.
+If the Update workflow fails or is cancelled, Publish does not run automatically and the previously published dataset remains untouched.
 
 ## Future Google Apps Script Integration
 

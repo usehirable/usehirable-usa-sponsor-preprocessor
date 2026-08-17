@@ -2,6 +2,12 @@ name: Update USA sponsors
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "25 4 * * 0"
+
+concurrency:
+  group: usa-sponsor-update
+  cancel-in-progress: false
 
 jobs:
   build:
