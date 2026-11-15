@@ -1,16 +1,16 @@
 {
-  "version": "2026-11-08",
-  "generatedAt": "2026-11-08T04:32:50.571284Z",
+  "version": "2026-11-15",
+  "generatedAt": "2026-11-15T04:29:52.856664Z",
   "country": "United States",
   "countryCode": "US",
   "source": "U.S. DOL LCA Disclosure",
   "sourceUrl": "https://www.dol.gov/media/LCA_Disclosure_Data_FY2026_Q3.xlsx",
   "fiscalYear": 2026,
   "quarter": 3,
-  "totalCompanies": 60846,
-  "totalFilings": 427628,
+  "totalCompanies": 44101,
+  "totalFilings": 224698,
   "chunkSize": 5000,
-  "chunkCount": 13,
+  "chunkCount": 9,
   "chunks": [
     {
       "index": 1,
@@ -55,27 +55,7 @@
     {
       "index": 9,
       "file": "usa-009.json",
-      "recordCount": 5000
-    },
-    {
-      "index": 10,
-      "file": "usa-010.json",
-      "recordCount": 5000
-    },
-    {
-      "index": 11,
-      "file": "usa-011.json",
-      "recordCount": 5000
-    },
-    {
-      "index": 12,
-      "file": "usa-012.json",
-      "recordCount": 5000
-    },
-    {
-      "index": 13,
-      "file": "usa-013.json",
-      "recordCount": 846
+      "recordCount": 4101
     }
   ]
 }
